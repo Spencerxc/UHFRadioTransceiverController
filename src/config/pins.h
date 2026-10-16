@@ -11,7 +11,7 @@
 //   GPIO0     ->   GPIO26
 //   GPIO2     ->   GPIO27
 //   GPIO3     ->   GPIO25
-//   VDD/GND   ->   3V3/GND
+//   VDD/GND   ->   External
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"

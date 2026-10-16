@@ -63,6 +63,9 @@ public:
 
     esp_err_t applyPreset(const RegSetting* settings, size_t count);
 
+    // Applies a preset, calibrates, and issues SRX. Leaves the chip in RX mode.
+    esp_err_t startRx(const RegSetting* preset, size_t count);
+
     // Carrier frequency, computed from FS_CFG band select and FREQ2/1/0.
     esp_err_t getFrequency(uint32_t& hz);
     // Sets the carrier in the 410-480 MHz band. Leaves the chip in IDLE and

@@ -3,7 +3,7 @@
 Microcontroller code for controlling a TI CC1120 dev board (420–470 MHz).
 It runs on an ELEGOO ESP32 dev board (ESP32-WROOM-32) using ESP-IDF, which includes FreeRTOS. The code is written in C++.
 
-Phase 1, the current phase, provides a serial command console over USB for talking to the CC1120: reading and writing registers, sending command strobes, checking chip status, and setting the frequency.
+provides a serial command console over USB for talking to the CC1120: reading and writing registers, sending command strobes, checking chip status, and setting the frequency.
 
 ## Hardware wiring
 
@@ -17,14 +17,16 @@ Phase 1, the current phase, provides a serial command console over USB for talki
 | GPIO0 | 26 | Reserved for interrupts in Phase 2 |
 | GPIO2 | 27 | Reserved for interrupts in Phase 2 |
 | GPIO3 | 25 | Reserved |
-| VDD | 3V3 | **3.3 V only** |
+| VDD | External | Driven by other power sources |
 | GND | GND | |
 
 All pin assignments are in [src/config/pins.h](src/config/pins.h).
 
 ## Building and flashing
 
-You need VS Code with the PlatformIO extension. The first build downloads the ESP-IDF toolchain automatically.
+In order to connect to the ESP32 using the onboard USB-C to UART bridge, you will need to install the CP210x USB driver for your operating system. You can find the drivers here: [https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers).
+
+You need VS Code with the PlatformIO extension. The first build downloads the ESP-IDF toolchain automatically. It can be found here: [https://marketplace.visualstudio.com/items?itemName=platformio.platformio-ide](https://marketplace.visualstudio.com/items?itemName=platformio.platformio-ide)
 
 ```sh
 pio run                    # build
@@ -82,8 +84,3 @@ Datasheets/cc1120.pdf           CC1120 datasheet
 ```
 
 > The default preset is adapted from TI's EasyLink example settings. Regenerate it with **SmartRF Studio 7** for your exact board, crystal and data rate.
-
-## Roadmap
-
-- **Phase 2: Packet TX/RX.** Send and receive variable-length packets through the 128-byte FIFOs. A CC1120 GPIO0/GPIO2 interrupt (`PKT_SYNC_RXTX`, `RXFIFO_THR`) feeds a FreeRTOS queue that an RX task drains. Adds `tx <data>` and `rx` console commands, plus RSSI and LQI readout for each packet. The driver already has `readRxFifo()` and `writeTxFifo()`.
-- **Phase 3: Two-board link test.** Two ESP32 + CC1120 nodes ping-pong packets with sequence numbers. They report RSSI, LQI, packet loss and round-trip time, and are controlled from the console (`link master` / `link slave`).

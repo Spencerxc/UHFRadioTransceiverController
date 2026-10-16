@@ -208,6 +208,30 @@ esp_err_t Cc1120::setFrequency(uint32_t hz) {
     return strobe(SCAL);
 }
 
+esp_err_t Cc1120::startRx(const RegSetting* preset, size_t count) {
+    if (esp_err_t err = strobe(SIDLE); err != ESP_OK) {
+        return err;
+    }
+    if (esp_err_t err = applyPreset(preset, count); err != ESP_OK) {
+        return err;
+    }
+    if (esp_err_t err = strobe(SCAL); err != ESP_OK) {
+        return err;
+    }
+    // Wait for calibration to finish (CALIBRATE → IDLE) before entering RX.
+    const int64_t start = esp_timer_get_time();
+    uint8_t state = 0;
+    do {
+        if (esp_err_t err = marcState(state); err != ESP_OK) {
+            return err;
+        }
+        if (esp_timer_get_time() - start > kChipReadyTimeoutUs) {
+            return ESP_ERR_TIMEOUT;
+        }
+    } while (state != 0x01);  // MARC_STATE IDLE
+    return strobe(SRX);
+}
+
 esp_err_t Cc1120::readRxFifo(uint8_t* data, size_t len) {
     return readBurst(kFifo, data, len);
 }
