@@ -3,15 +3,16 @@
 // ESP32 <-> CC1120 wiring. All hardware pin assignments live here.
 //
 //   CC1120         ESP32
-//   SCLK      ->   GPIO18 (VSPI CLK)
-//   SO/GPIO1  ->   GPIO19 (VSPI MISO)
-//   SI        ->   GPIO23 (VSPI MOSI)
-//   CSn       ->   GPIO5  (driven manually as a GPIO)
-//   RESET_N   ->   GPIO4
-//   GPIO0     ->   GPIO26
-//   GPIO2     ->   GPIO27
-//   GPIO3     ->   GPIO25
-//   VDD/GND   ->   External
+//   CC1120 silk label       ESP32 silk label
+//   SCLK                     18 (VSPI CLK)
+//   SO/GPIO1                 19 (VSPI MISO)
+//   SI                       23 (VSPI MOSI)
+//   CSn                      5  (driven manually as a GPIO)
+//   RESET_N                  4
+//   GPIO0                    26
+//   GPIO2                    27
+//   GPIO3                    25
+//   VDD/GND                  External
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"

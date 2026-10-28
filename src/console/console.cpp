@@ -55,9 +55,40 @@ bool validRange(uint32_t addr, uint32_t count) {
     return addr + count - 1 <= cc1120::kLastConfigReg;
 }
 
+const char* g_cmd = "";
+
 int fail(esp_err_t err) {
-    std::printf("error: %s\n", esp_err_to_name(err));
+    std::printf("error: '%s' failed: %s (0x%X)\n", g_cmd, esp_err_to_name(err), unsigned(err));
+    if (err == ESP_ERR_TIMEOUT) {
+        std::printf("  CC1120 never pulled MISO (GPIO19) low after CSn (GPIO5) went low, so no SPI\n"
+                    "  clocks were sent. Check chip power/GND, RESET_N (GPIO4), CSn and MISO wiring.\n");
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        std::printf("  driver not initialised (init() failed at boot, see the boot log).\n");
+    }
     return 1;
+}
+
+// Marks the start of a command and, unless skipChip is set, confirms a CC1120
+// answers on the bus. With no chip attached MISO floats low, so every SPI
+// transfer "succeeds" and returns zeros; this catches that case.
+bool begin(const char* name, bool skipChip = true) {
+    g_cmd = name;
+    if (skipChip) {
+        return true;
+    }
+    uint8_t part = 0;
+    if (esp_err_t err = g_radio->partNumber(part); err != ESP_OK) {
+        fail(err);
+        return false;
+    }
+    if (part != cc1120::kPartNumberCc1120) {
+        std::printf("error: '%s' aborted: PARTNUMBER read 0x%02X, expected 0x%02X.\n"
+                    "  No CC1120 is responding (0x00/0xFF means MISO is floating or stuck).\n"
+                    "  Check power, wiring, and that MISO (GPIO19) is connected to the chip's SO.\n",
+                    name, part, cc1120::kPartNumberCc1120);
+        return false;
+    }
+    return true;
 }
 
 void printHexRows(uint16_t base, const uint8_t* data, size_t len) {
@@ -72,6 +103,9 @@ void printHexRows(uint16_t base, const uint8_t* data, size_t len) {
 
 // ---- id ---------------------------------------------------------------------
 int cmdId(int, char**) {
+    if (!begin("id", true)) {
+        return 1;
+    }
     uint8_t part = 0;
     uint8_t version = 0;
     if (esp_err_t err = g_radio->partNumber(part); err != ESP_OK) {
@@ -88,6 +122,9 @@ int cmdId(int, char**) {
 
 // ---- status -----------------------------------------------------------------
 int cmdStatus(int, char**) {
+    if (!begin("status")) {
+        return 1;
+    }
     uint8_t status = 0;
     uint8_t marc = 0;
     uint8_t rxBytes = 0;
@@ -98,8 +135,12 @@ int cmdStatus(int, char**) {
     if (esp_err_t err = g_radio->marcState(marc); err != ESP_OK) {
         return fail(err);
     }
-    g_radio->readReg(cc1120::NUM_RXBYTES, rxBytes);
-    g_radio->readReg(cc1120::NUM_TXBYTES, txBytes);
+    if (esp_err_t err = g_radio->readReg(cc1120::NUM_RXBYTES, rxBytes); err != ESP_OK) {
+        return fail(err);
+    }
+    if (esp_err_t err = g_radio->readReg(cc1120::NUM_TXBYTES, txBytes); err != ESP_OK) {
+        return fail(err);
+    }
     std::printf("status 0x%02X  CHIP_RDYn=%d  state=%s\n", status,
                 (status & cc1120::kStatusChipRdyN) ? 1 : 0, Cc1120::chipStateName(status));
     std::printf("MARCSTATE 0x%02X (%s)\n", marc, Cc1120::marcStateName(marc));
@@ -116,6 +157,9 @@ struct {
 int cmdReset(int argc, char** argv) {
     if (arg_parse(argc, argv, reinterpret_cast<void**>(&g_resetArgs)) != 0) {
         arg_print_errors(stdout, g_resetArgs.end, argv[0]);
+        return 1;
+    }
+    if (!begin("reset", true)) {
         return 1;
     }
     bool soft = false;
@@ -145,6 +189,9 @@ struct {
 int cmdStrobe(int argc, char** argv) {
     if (arg_parse(argc, argv, reinterpret_cast<void**>(&g_strobeArgs)) != 0) {
         arg_print_errors(stdout, g_strobeArgs.end, argv[0]);
+        return 1;
+    }
+    if (!begin("strobe")) {
         return 1;
     }
     const char* arg = g_strobeArgs.cmd->sval[0];
@@ -188,6 +235,9 @@ int cmdRead(int argc, char** argv) {
         arg_print_errors(stdout, g_rdArgs.end, argv[0]);
         return 1;
     }
+    if (!begin("rd")) {
+        return 1;
+    }
     uint32_t addr = 0;
     uint32_t count = 1;
     if (!parseU32(g_rdArgs.addr->sval[0], addr) ||
@@ -219,6 +269,9 @@ int cmdWrite(int argc, char** argv) {
         arg_print_errors(stdout, g_wrArgs.end, argv[0]);
         return 1;
     }
+    if (!begin("wr")) {
+        return 1;
+    }
     uint32_t addr = 0;
     uint32_t value = 0;
     if (!parseU32(g_wrArgs.addr->sval[0], addr) || !parseU32(g_wrArgs.value->sval[0], value) ||
@@ -239,6 +292,9 @@ int cmdWrite(int argc, char** argv) {
 
 // ---- dump -------------------------------------------------------------------
 int cmdDump(int, char**) {
+    if (!begin("dump")) {
+        return 1;
+    }
     uint8_t buf[Cc1120::kFifoSize];
 
     constexpr size_t kNormalCount = cc1120::kLastConfigReg + 1;
@@ -259,6 +315,9 @@ int cmdDump(int, char**) {
 
 // ---- preset -----------------------------------------------------------------
 int cmdPreset(int, char**) {
+    if (!begin("preset")) {
+        return 1;
+    }
     if (esp_err_t err = g_radio->strobe(cc1120::SIDLE); err != ESP_OK) {
         return fail(err);
     }
@@ -283,6 +342,9 @@ struct {
 int cmdFreq(int argc, char** argv) {
     if (arg_parse(argc, argv, reinterpret_cast<void**>(&g_freqArgs)) != 0) {
         arg_print_errors(stdout, g_freqArgs.end, argv[0]);
+        return 1;
+    }
+    if (!begin("freq")) {
         return 1;
     }
     if (g_freqArgs.mhz->count > 0) {

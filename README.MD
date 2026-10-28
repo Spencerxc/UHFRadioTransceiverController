@@ -7,10 +7,14 @@ provides a serial command console over USB for talking to the CC1120: reading an
 
 ## Hardware wiring
 
-| CC1120 pin | ESP32 GPIO | Notes |
+The ESP32 column below is the GPIO number printed on the Elegoo board's
+silkscreen. The CC1120 column uses the signal labels printed on the CC1120
+board; GPIO1 is also the SPI `SO`/`CHIP_RDYn` signal.
+
+| CC1120 board silk label | ESP32 board silk label | Notes |
 |---|---|---|
 | SCLK | 18 | VSPI clock |
-| SO (GPIO1) | 19 | VSPI MISO; also CHIP_RDYn |
+| SO / GPIO1 | 19 | VSPI MISO; also CHIP_RDYn |
 | SI | 23 | VSPI MOSI |
 | CSn | 5 | Driven manually by the driver |
 | RESET_N | 4 | |
@@ -68,7 +72,10 @@ cc1120> status        -> state=RX
 cc1120> strobe SIDLE
 ```
 
-If commands fail with `ESP_ERR_TIMEOUT`, the CC1120 never pulled SO low (CHIP_RDYn). Check the power, ground, CSn and MISO wiring.
+If `PARTNUMBER` is `0xFF`, the CC1120 is not driving SO/MISO. Check that the radio is powered
+at the voltage required by the board, shares ground with the ESP32, and that CSn, RESET_N,
+and SO/MISO are wired to the pins above. `ESP_ERR_TIMEOUT` means SO stayed high while CSn
+was asserted, which usually indicates the same wiring or power problem.
 
 ## Project layout
 

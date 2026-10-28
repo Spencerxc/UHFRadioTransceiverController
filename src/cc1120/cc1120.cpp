@@ -88,7 +88,9 @@ esp_err_t Cc1120::init(const Pins& pins) {
     if (esp_err_t err = partNumber(part); err != ESP_OK) {
         return err;
     }
-    partVersion(version);
+    if (esp_err_t err = partVersion(version); err != ESP_OK) {
+        return err;
+    }
     if (part != kPartNumberCc1120) {
         ESP_LOGE(kTag, "unexpected PARTNUMBER 0x%02X (expected 0x%02X)", part, kPartNumberCc1120);
         return ESP_ERR_NOT_FOUND;
@@ -98,9 +100,13 @@ esp_err_t Cc1120::init(const Pins& pins) {
 }
 
 esp_err_t Cc1120::hardReset() {
+    // RESET_N must be asserted while CSn is high. Leave the oscillator time
+    // to restart before attempting the first SPI access.
+    gpio_set_level(pins_.csn, 1);
     gpio_set_level(pins_.resetN, 0);
     esp_rom_delay_us(100);
     gpio_set_level(pins_.resetN, 1);
+    esp_rom_delay_us(100);
     return waitChipReady();
 }
 

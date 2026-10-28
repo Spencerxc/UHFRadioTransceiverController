@@ -196,6 +196,6 @@ constexpr uint8_t kMarcStateMask = 0x1F;
 constexpr uint8_t kBandSelectMask = 0x0F;
 constexpr uint8_t kBand410_480 = 0x04;  // LO divider 8
 
-constexpr uint8_t kPartNumberCc1120 = 0x48;
+constexpr uint8_t kPartNumberCc1120 = 0xEF;
 
 }  // namespace cc1120
