@@ -3,7 +3,7 @@
 #include "api/radio_api.h"
 #include "config/pins.h"
 #include "protocol/protocol_manager.h"
-#ifdef CONFIG_RADIO_ENABLE_CONSOLE
+#if CONFIG_RADIO_ENABLE_CONSOLE
 #include "console/console.h"
 #endif
 
@@ -34,7 +34,7 @@ extern "C" void app_main() {
         ESP_LOGE(kTag, "radio start failed: %s", esp_err_to_name(err));
     }
 
-#ifdef CONFIG_RADIO_ENABLE_CONSOLE
+#if CONFIG_RADIO_ENABLE_CONSOLE
     ESP_ERROR_CHECK(console::start(g_manager.radio(), g_api));
 #endif
     // app_main returns; the manager task (and console REPL, if enabled) keep running.
