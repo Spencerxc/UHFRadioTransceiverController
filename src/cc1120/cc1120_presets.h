@@ -33,6 +33,9 @@ inline constexpr RegSetting kPreset434MHz[] = {
     {FIFO_CFG, 0x00},
     {SETTLING_CFG, 0x03},
     {FS_CFG, 0x14},        // FS lock detector on, 410-480 MHz band (LO div 8)
+    {PA_CFG2, 0x79},       // +12 dBm at 434 MHz (SmartRF Studio)
+    {PA_CFG1, 0x56},
+    {PA_CFG0, 0x79},
     {PKT_CFG0, 0x20},      // Variable packet length (first byte = length)
     {PKT_LEN, 0xFF},
     {IF_MIX_CFG, 0x00},
