@@ -1,16 +1,19 @@
 #include "esp_log.h"
 
-#include "cc1120/cc1120.h"
-#include "cc1120/cc1120_presets.h"
+#include "api/radio_api.h"
 #include "config/pins.h"
+#include "protocol/protocol_manager.h"
+#ifdef CONFIG_RADIO_ENABLE_CONSOLE
 #include "console/console.h"
+#endif
 
 namespace {
 
 constexpr const char* kTag = "main";
 
 // Static so the driver's DMA buffers live in internal RAM and outlive app_main.
-cc1120::Cc1120 g_radio;
+protocol::ProcessManager g_manager;
+api::RadioApi g_api(g_manager);
 
 }  // namespace
 
@@ -25,16 +28,15 @@ extern "C" void app_main() {
         .clockHz = pins::kSpiClockHz,
     };
 
-    if (esp_err_t err = g_radio.init(radioPins); err != ESP_OK) {
-        // Keep going: the console is still useful for debugging wiring.
-        ESP_LOGE(kTag, "CC1120 init failed: %s", esp_err_to_name(err));
-    } else if (esp_err_t err = g_radio.startRx(cc1120::kPreset434MHz, cc1120::kPreset434MHzCount);
-               err != ESP_OK) {
-        ESP_LOGE(kTag, "CC1120 startRx failed: %s", esp_err_to_name(err));
-    } else {
-        ESP_LOGI(kTag, "CC1120 ready, RX 434.000 MHz");
+    // Brings the radio up in RX with the RF switch on the RX path. On failure the
+    // manager's task keeps retrying, so an unattended unit recovers by itself.
+    if (esp_err_t err = g_manager.begin(radioPins); err != ESP_OK) {
+        ESP_LOGE(kTag, "radio start failed: %s", esp_err_to_name(err));
     }
 
-    ESP_ERROR_CHECK(console::start(g_radio));
-    // app_main returns; the console REPL keeps running in its own task.
+#ifdef CONFIG_RADIO_ENABLE_CONSOLE
+    ESP_ERROR_CHECK(console::start(g_manager.radio(), g_api));
+#endif
+    // app_main returns; the manager task (and console REPL, if enabled) keep running.
+    // Application code on this unit calls g_api.send() / g_api.receive().
 }

@@ -13,6 +13,9 @@
 //   GPIO2                    27
 //   GPIO3                    25
 //   VDD/GND                  External
+//
+//   External RF switch select (3.3 V logic): GPIO 32
+//     Low  = RX path (default / idle),  High = TX path
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
@@ -30,6 +33,10 @@ constexpr gpio_num_t kResetN = GPIO_NUM_4;
 constexpr gpio_num_t kCcGpio0 = GPIO_NUM_26;
 constexpr gpio_num_t kCcGpio2 = GPIO_NUM_27;
 constexpr gpio_num_t kCcGpio3 = GPIO_NUM_25;
+
+// RF switch select output. The radio is bidirectional, so this line steers the
+// antenna path: Low = RX (default), High = TX. 3.3 V logic, no strapping role.
+constexpr gpio_num_t kRfSwitch = GPIO_NUM_32;
 
 // SPI clock. The CC1120 supports up to 10 MHz for single access; 4 MHz
 // leaves margin for jumper wires and extended-register burst access.

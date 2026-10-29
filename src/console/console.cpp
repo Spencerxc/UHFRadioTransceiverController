@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <strings.h>
 
 #include "argtable3/argtable3.h"
@@ -18,6 +19,7 @@ namespace {
 using cc1120::Cc1120;
 
 Cc1120* g_radio = nullptr;
+api::RadioApi* g_api = nullptr;
 
 struct StrobeName {
     const char* name;
@@ -354,7 +356,7 @@ int cmdFreq(int argc, char** argv) {
             std::printf("frequency must be 410-480 MHz for this board\n");
             return 1;
         }
-        if (esp_err_t err = g_radio->setFrequency(uint32_t(std::llround(hz))); err != ESP_OK) {
+        if (esp_err_t err = g_api->setFrequency(uint32_t(std::llround(hz))); err != ESP_OK) {
             return fail(err);
         }
     }
@@ -363,6 +365,58 @@ int cmdFreq(int argc, char** argv) {
         return fail(err);
     }
     std::printf("%.4f MHz\n", hz / 1e6);
+    return 0;
+}
+
+// ---- send <text> ------------------------------------------------------------
+struct {
+    arg_str* text;
+    struct arg_end* end;
+} g_sendArgs;
+
+int cmdSend(int argc, char** argv) {
+    if (arg_parse(argc, argv, reinterpret_cast<void**>(&g_sendArgs)) != 0) {
+        arg_print_errors(stdout, g_sendArgs.end, argv[0]);
+        return 1;
+    }
+    g_cmd = "send";
+    const char* text = g_sendArgs.text->sval[0];
+    const size_t len = std::strlen(text);
+    if (esp_err_t err = g_api->send(reinterpret_cast<const uint8_t*>(text), len); err != ESP_OK) {
+        return fail(err);
+    }
+    std::printf("sent %u bytes, back in RX\n", unsigned(len));
+    return 0;
+}
+
+// ---- recv [ms] --------------------------------------------------------------
+struct {
+    arg_int* ms;
+    struct arg_end* end;
+} g_recvArgs;
+
+int cmdRecv(int argc, char** argv) {
+    if (arg_parse(argc, argv, reinterpret_cast<void**>(&g_recvArgs)) != 0) {
+        arg_print_errors(stdout, g_recvArgs.end, argv[0]);
+        return 1;
+    }
+    g_cmd = "recv";
+    const uint32_t ms = g_recvArgs.ms->count > 0 ? uint32_t(g_recvArgs.ms->ival[0]) : 1000;
+    uint8_t buf[protocol::kMaxPayload];
+    size_t len = 0;
+    esp_err_t err = g_api->receive(buf, sizeof(buf), len, ms);
+    if (err == ESP_ERR_TIMEOUT) {
+        std::printf("no packet\n");
+        return 0;
+    }
+    if (err != ESP_OK) {
+        return fail(err);
+    }
+    std::printf("%u bytes:", unsigned(len));
+    for (size_t i = 0; i < len; ++i) {
+        std::printf(" %02X", buf[i]);
+    }
+    std::printf("\n");
     return 0;
 }
 
@@ -394,6 +448,12 @@ esp_err_t registerCommands() {
     g_freqArgs.mhz = arg_dbl0(nullptr, nullptr, "<MHz>", "new carrier, 410-480");
     g_freqArgs.end = arg_end(2);
 
+    g_sendArgs.text = arg_str1(nullptr, nullptr, "<text>", "payload to transmit (quote if it has spaces)");
+    g_sendArgs.end = arg_end(2);
+
+    g_recvArgs.ms = arg_int0(nullptr, nullptr, "<ms>", "wait time (default 1000)");
+    g_recvArgs.end = arg_end(2);
+
     const struct {
         const char* name;
         const char* help;
@@ -409,6 +469,8 @@ esp_err_t registerCommands() {
         {"dump", "Dump all configuration registers", cmdDump, nullptr},
         {"preset", "Load the default 434 MHz configuration and calibrate", cmdPreset, nullptr},
         {"freq", "Get or set the carrier frequency", cmdFreq, &g_freqArgs},
+        {"send", "Transmit a packet, then return to RX", cmdSend, &g_sendArgs},
+        {"recv", "Wait for a received packet", cmdRecv, &g_recvArgs},
     };
     for (const auto& c : cmds) {
         if (esp_err_t err = registerCmd(c.name, c.help, c.func, c.argtable); err != ESP_OK) {
@@ -420,8 +482,9 @@ esp_err_t registerCommands() {
 
 }  // namespace
 
-esp_err_t start(cc1120::Cc1120& radio) {
+esp_err_t start(cc1120::Cc1120& radio, api::RadioApi& api) {
     g_radio = &radio;
+    g_api = &api;
 
     esp_console_repl_t* repl = nullptr;
     esp_console_repl_config_t replConfig = ESP_CONSOLE_REPL_CONFIG_DEFAULT();

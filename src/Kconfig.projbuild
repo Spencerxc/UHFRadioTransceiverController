@@ -1,0 +1,10 @@
+menu "Radio Unit"
+
+    config RADIO_ENABLE_CONSOLE
+        bool "Enable serial debug console"
+        default y
+        help
+            Builds the esp_console REPL on UART0 for bench debugging. Disable for the
+            remote unit, which has no console and runs only the Interface API.
+
+endmenu
