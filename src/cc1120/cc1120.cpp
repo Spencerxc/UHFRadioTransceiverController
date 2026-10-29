@@ -282,6 +282,9 @@ esp_err_t Cc1120::transfer(uint16_t addr, bool read, bool burst, uint8_t* data,
         return ESP_ERR_INVALID_SIZE;
     }
 
+    // txBuf_/rxBuf_ are shared, so the header must be built under the lock too.
+    Lock lock(mutex_);
+
     const uint8_t rw = (read ? kReadBit : 0) | (burst ? kBurstBit : 0);
     size_t hdrLen = 0;
     if (isExtended(addr)) {
@@ -294,8 +297,6 @@ esp_err_t Cc1120::transfer(uint16_t addr, bool read, bool burst, uint8_t* data,
     } else {
         return ESP_ERR_INVALID_ARG;
     }
-
-    Lock lock(mutex_);
 
     if (read) {
         std::memset(txBuf_ + hdrLen, 0, len);
