@@ -14,8 +14,9 @@
 //   GPIO3                    25
 //   VDD/GND                  External
 //
-//   External RF switch select (3.3 V logic): GPIO 32
-//     Low  = RX path (default / idle),  High = TX path
+//   External RF switch select (3.3 V logic): Rx = GPIO 32, Tx = GPIO 33
+//     Tx High, Rx Low = TX path (hardware power-on default)
+//     Rx High, Tx Low = RX path (selected by rfswitch::init())
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
@@ -34,9 +35,12 @@ constexpr gpio_num_t kCcGpio0 = GPIO_NUM_26;
 constexpr gpio_num_t kCcGpio2 = GPIO_NUM_27;
 constexpr gpio_num_t kCcGpio3 = GPIO_NUM_25;
 
-// RF switch select output. The radio is bidirectional, so this line steers the
-// antenna path: Low = RX (default), High = TX. 3.3 V logic, no strapping role.
-constexpr gpio_num_t kRfSwitch = GPIO_NUM_32;
+// RF switch select outputs. The radio is bidirectional, so these lines steer the
+// antenna path: Tx High, Rx Low = Transmit; Rx High, Tx Low = Receive.
+// The power-on state is Transmit, so the radio cannot receive until the switch
+// is set to Receive. Neither pin has a strapping role.
+constexpr gpio_num_t kRfSwitchRx = GPIO_NUM_32;
+constexpr gpio_num_t kRfSwitchTx = GPIO_NUM_33;
 
 // SPI clock. The CC1120 supports up to 10 MHz for single access; 4 MHz
 // leaves margin for jumper wires and extended-register burst access.
