@@ -11,6 +11,8 @@
 #include "esp_console.h"
 
 #include "cc1120/cc1120_presets.h"
+#include "command/client.h"
+#include "command/message.h"
 
 namespace console {
 
@@ -404,7 +406,8 @@ int cmdRecv(int argc, char** argv) {
     const uint32_t ms = g_recvArgs.ms->count > 0 ? uint32_t(g_recvArgs.ms->ival[0]) : 1000;
     uint8_t buf[protocol::kMaxPayload];
     size_t len = 0;
-    esp_err_t err = g_api->receive(buf, sizeof(buf), len, ms);
+    protocol::RxInfo info{};
+    esp_err_t err = g_api->receive(buf, sizeof(buf), len, ms, &info);
     if (err == ESP_ERR_TIMEOUT) {
         std::printf("no packet\n");
         return 0;
@@ -412,12 +415,74 @@ int cmdRecv(int argc, char** argv) {
     if (err != ESP_OK) {
         return fail(err);
     }
+    if (info.rssiValid) {
+        std::printf("rssi %d dBm, lqi %u, crc %s\n", int(info.rssiDbm), unsigned(info.lqi),
+                    info.crcOk ? "ok" : "BAD");
+    } else {
+        std::printf("rssi n/a, lqi %u, crc %s\n", unsigned(info.lqi), info.crcOk ? "ok" : "BAD");
+    }
     std::printf("%u bytes:", unsigned(len));
     for (size_t i = 0; i < len; ++i) {
         std::printf(" %02X", buf[i]);
     }
     std::printf("\n");
     return 0;
+}
+
+// ---- cmd <request> [ms] -----------------------------------------------------
+struct {
+    arg_str* request;
+    arg_int* ms;
+    struct arg_end* end;
+} g_cmdArgs;
+
+int cmdCommand(int argc, char** argv) {
+    if (arg_parse(argc, argv, reinterpret_cast<void**>(&g_cmdArgs)) != 0) {
+        arg_print_errors(stdout, g_cmdArgs.end, argv[0]);
+        return 1;
+    }
+    g_cmd = "cmd";
+    const uint32_t ms = g_cmdArgs.ms->count > 0 ? uint32_t(g_cmdArgs.ms->ival[0]) : 3000;
+    command::Message reply;
+    uint32_t rttMs = 0;
+    protocol::RxInfo info{};
+    esp_err_t err = command::request(*g_api, g_cmdArgs.request->sval[0], reply, ms, rttMs, info);
+    if (err == ESP_ERR_TIMEOUT) {
+        std::printf("no reply within %lu ms\n", (unsigned long)ms);
+        return 1;
+    }
+    if (err == ESP_ERR_INVALID_ARG) {
+        std::printf("error: not a valid request frame (VERB[::TOPIC[::k=v;...]], max %u bytes)\n",
+                    unsigned(command::kMaxFrame));
+        return 1;
+    }
+    if (err != ESP_OK) {
+        return fail(err);
+    }
+
+    // RSSI of the reply as measured by this unit.
+    char localRssi[24] = "rssi = n/a";
+    if (info.rssiValid) {
+        std::snprintf(localRssi, sizeof(localRssi), "rssi = %d dBm", int(info.rssiDbm));
+    }
+
+    if (std::strcmp(reply.topic, "PONG") == 0) {
+        std::printf("PONG  rtt = %lu ms  %s\n", (unsigned long)rttMs, localRssi);
+        return 0;
+    }
+    std::printf("%s::%s  rtt = %lu ms  %s (reply, measured here)\n", reply.verb, reply.topic,
+                (unsigned long)rttMs, localRssi);
+    command::forEachField(reply.body, [](const char* key, const char* value) {
+        if (std::strcmp(key, "id") == 0) {
+            return;
+        }
+        if (std::strcmp(key, "rssi") == 0) {
+            std::printf("  %-6s = %s dBm (request, measured by remote)\n", key, value);
+        } else {
+            std::printf("  %-6s = %s\n", key, value);
+        }
+    });
+    return std::strcmp(reply.verb, "ERR") == 0 ? 1 : 0;
 }
 
 esp_err_t registerCmd(const char* name, const char* help, esp_console_cmd_func_t func,
@@ -454,6 +519,10 @@ esp_err_t registerCommands() {
     g_recvArgs.ms = arg_int0(nullptr, nullptr, "<ms>", "wait time (default 1000)");
     g_recvArgs.end = arg_end(2);
 
+    g_cmdArgs.request = arg_str1(nullptr, nullptr, "<request>", "e.g. PING, GET::TEL::, GET::STATUS::");
+    g_cmdArgs.ms = arg_int0(nullptr, nullptr, "<ms>", "reply timeout (default 3000)");
+    g_cmdArgs.end = arg_end(2);
+
     const struct {
         const char* name;
         const char* help;
@@ -471,6 +540,7 @@ esp_err_t registerCommands() {
         {"freq", "Get or set the carrier frequency", cmdFreq, &g_freqArgs},
         {"send", "Transmit a packet, then return to RX", cmdSend, &g_sendArgs},
         {"recv", "Wait for a received packet", cmdRecv, &g_recvArgs},
+        {"cmd", "Send a command to the remote unit and print its reply", cmdCommand, &g_cmdArgs},
     };
     for (const auto& c : cmds) {
         if (esp_err_t err = registerCmd(c.name, c.help, c.func, c.argtable); err != ESP_OK) {

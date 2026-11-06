@@ -175,10 +175,14 @@ esp_err_t ProcessManager::transmit(const uint8_t* data, size_t len) {
         rfswitch::setRx();
         state_ = State::Init;  // the task re-runs bring-up
     }
+    if (err == ESP_OK) {  // the packet went out even if the return to RX failed
+        ++txCount_;
+    }
     return err != ESP_OK ? err : rxErr;
 }
 
-esp_err_t ProcessManager::receive(uint8_t* buf, size_t bufLen, size_t& outLen, uint32_t timeoutMs) {
+esp_err_t ProcessManager::receive(uint8_t* buf, size_t bufLen, size_t& outLen, uint32_t timeoutMs,
+                                  RxInfo* info) {
     if (buf == nullptr || rxQueue_ == nullptr) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -191,6 +195,9 @@ esp_err_t ProcessManager::receive(uint8_t* buf, size_t bufLen, size_t& outLen, u
     }
     std::memcpy(buf, pkt.data, pkt.len);
     outLen = pkt.len;
+    if (info != nullptr) {
+        *info = pkt.info;
+    }
     return ESP_OK;
 }
 
@@ -236,10 +243,22 @@ void ProcessManager::pollRx() {
     if (nBytes > 0) {
         uint8_t len = 0;
         Packet pkt{};
+        uint8_t status[kRxStatusBytes] = {};
         if (radio_.readRxFifo(&len, 1) == ESP_OK && len > 0 && len <= kMaxPayload &&
-            nBytes >= len + 1u && radio_.readRxFifo(pkt.data, len) == ESP_OK) {
+            nBytes >= len + 1u + kRxStatusBytes && radio_.readRxFifo(pkt.data, len) == ESP_OK &&
+            radio_.readRxFifo(status, kRxStatusBytes) == ESP_OK) {
             pkt.len = len;
-            xQueueSend(rxQueue_, &pkt, 0);  // drop if the application is not keeping up
+            // Status byte 0: RSSI as a signed integer, -128 = invalid.
+            // Status byte 1: bit 7 CRC_OK, bits 6:0 LQI.
+            const int8_t rawRssi = int8_t(status[0]);
+            pkt.info.rssiValid = rawRssi != -128;
+            pkt.info.rssiDbm = pkt.info.rssiValid ? int16_t(rawRssi - kRssiOffsetDb) : 0;
+            pkt.info.crcOk = (status[1] & 0x80) != 0;
+            pkt.info.lqi = status[1] & 0x7F;
+            // Drop if the application is not keeping up.
+            if (xQueueSend(rxQueue_, &pkt, 0) == pdTRUE) {
+                ++rxCount_;
+            }
         }
     }
     // Flush any leftover/status bytes and resume listening.

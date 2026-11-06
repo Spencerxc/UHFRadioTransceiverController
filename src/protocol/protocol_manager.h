@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -15,9 +16,26 @@ namespace protocol {
 
 enum class State : uint8_t { Init, Rx, Tx };
 
-// Largest payload per packet. The first FIFO byte is the length byte
-// (variable-length packet mode), so one packet is at most kFifoSize - 1 bytes.
-constexpr size_t kMaxPayload = cc1120::Cc1120::kFifoSize - 1;
+// Bytes the CC1120 appends after each received payload (PKT_CFG1.APPEND_STATUS,
+// on by default): RSSI, then CRC_OK | LQI.
+constexpr size_t kRxStatusBytes = 2;
+
+// Largest payload per packet. The RX FIFO must hold the length byte, the payload
+// and the appended status bytes, so a packet is at most kFifoSize - 3 bytes.
+constexpr size_t kMaxPayload = cc1120::Cc1120::kFifoSize - 1 - kRxStatusBytes;
+
+// Offset between the CC1120's raw RSSI reading and dBm at the antenna, when
+// AGC_GAIN_ADJUST is 0 (the preset leaves it at 0). The datasheet gives ~102 dB
+// as typical; calibrate per board against a known signal level if accuracy matters.
+constexpr int kRssiOffsetDb = 102;
+
+// Link quality of one received packet, from the CC1120's appended status bytes.
+struct RxInfo {
+    int16_t rssiDbm;  // signal strength at the antenna (approximate, see kRssiOffsetDb)
+    bool rssiValid;   // false if the chip reported no valid RSSI
+    uint8_t lqi;      // link quality indicator, 0-127 (lower is better)
+    bool crcOk;       // hardware CRC check passed
+};
 
 // Protocol Process Manager (1U1SMGR1).
 //
@@ -40,7 +58,9 @@ public:
 
     // Pops a received payload. Returns ESP_ERR_TIMEOUT if none arrives in time
     // and ESP_ERR_INVALID_SIZE if buf is too small (the packet is discarded).
-    esp_err_t receive(uint8_t* buf, size_t bufLen, size_t& outLen, uint32_t timeoutMs);
+    // If info is not null it receives the packet's RSSI / LQI / CRC status.
+    esp_err_t receive(uint8_t* buf, size_t bufLen, size_t& outLen, uint32_t timeoutMs,
+                      RxInfo* info = nullptr);
 
     // Sets the carrier (410-480 MHz) and returns to RX.
     esp_err_t setFrequency(uint32_t hz);
@@ -49,12 +69,17 @@ public:
     State state() const { return state_; }
     bool ready() const { return state_ != State::Init; }
 
+    // Packets transmitted successfully / received and queued since boot.
+    uint32_t txCount() const { return txCount_.load(); }
+    uint32_t rxCount() const { return rxCount_.load(); }
+
     // Raw access for the debug console.
     cc1120::Cc1120& radio() { return radio_; }
 
 private:
     struct Packet {
         uint8_t len;
+        RxInfo info;
         uint8_t data[kMaxPayload];
     };
 
@@ -72,6 +97,8 @@ private:
     QueueHandle_t rxQueue_ = nullptr;
     TaskHandle_t task_ = nullptr;
     volatile State state_ = State::Init;
+    std::atomic<uint32_t> txCount_{0};
+    std::atomic<uint32_t> rxCount_{0};
 };
 
 }  // namespace protocol

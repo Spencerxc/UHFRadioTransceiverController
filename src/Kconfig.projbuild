@@ -7,4 +7,14 @@ menu "Radio Unit"
             Builds the esp_console REPL on UART0 for bench debugging. Disable for the
             remote unit, which has no console and runs only the Interface API.
 
+    config RADIO_ENABLE_COMMAND_SERVER
+        bool "Enable over-the-air command server"
+        depends on !RADIO_ENABLE_CONSOLE
+        default n
+        help
+            Starts a task that answers over-the-air requests (PING, GET::TEL,
+            GET::STATUS) with telemetry and status replies. Enabled on the remote
+            unit. It consumes every received packet, so it cannot be combined with
+            the console, whose cmd/recv commands also read received packets.
+
 endmenu

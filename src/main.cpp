@@ -6,6 +6,9 @@
 #if CONFIG_RADIO_ENABLE_CONSOLE
 #include "console/console.h"
 #endif
+#if CONFIG_RADIO_ENABLE_COMMAND_SERVER
+#include "command/command_server.h"
+#endif
 
 namespace {
 
@@ -37,6 +40,10 @@ extern "C" void app_main() {
 #if CONFIG_RADIO_ENABLE_CONSOLE
     ESP_ERROR_CHECK(console::start(g_manager.radio(), g_api));
 #endif
-    // app_main returns; the manager task (and console REPL, if enabled) keep running.
-    // Application code on this unit calls g_api.send() / g_api.receive().
+#if CONFIG_RADIO_ENABLE_COMMAND_SERVER
+    // Remote unit: answer over-the-air requests (PING, GET::TEL, GET::STATUS).
+    ESP_ERROR_CHECK(command::start(g_api));
+#endif
+    // app_main returns; the manager task, the console REPL and/or the command
+    // server task (whichever are enabled) keep running.
 }
