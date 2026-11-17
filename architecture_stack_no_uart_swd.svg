@@ -70,7 +70,7 @@
   <!-- Row 3: RF switch GPIO driver -->
   <text x="522.5" y="112" text-anchor="middle"
         font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="600" fill="#222">
-    RF Switch GPIO Driver
+    RF Switch GPIO Driver (1U1SDD2)
   </text>
   <text x="522.5" y="125" text-anchor="middle"
         font-family="Arial, Helvetica, sans-serif" font-size="7.5" fill="#222">
