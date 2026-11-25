@@ -13,6 +13,7 @@ Status RadioApi::status() {
     }
     s.rxPackets = manager_.rxCount();
     s.txPackets = manager_.txCount();
+    s.rxDropped = manager_.rxDropped();
     s.uptimeMs = uint32_t(esp_timer_get_time() / 1000);
     return s;
 }

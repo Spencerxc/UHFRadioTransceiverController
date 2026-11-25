@@ -23,4 +23,8 @@ namespace command {
 esp_err_t request(api::RadioApi& api, const char* req, Message& reply, uint32_t timeoutMs,
                   uint32_t& rttMs, protocol::RxInfo& replyInfo);
 
+// Next request id, shared by request() and the stress ping so ids never repeat.
+// Not thread-safe: call from one task only.
+uint32_t nextRequestId();
+
 }  // namespace command

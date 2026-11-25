@@ -15,6 +15,7 @@ struct Status {
     uint32_t frequencyHz;      // 0 if it could not be read
     uint32_t rxPackets;        // packets received since boot
     uint32_t txPackets;        // packets transmitted since boot
+    uint32_t rxDropped;        // received but dropped (RX queue full) since boot
     uint32_t uptimeMs;         // time since boot
 };
 

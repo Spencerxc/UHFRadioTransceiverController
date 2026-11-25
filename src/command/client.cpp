@@ -15,6 +15,8 @@ uint32_t g_nextId = 1;
 
 }  // namespace
 
+uint32_t nextRequestId() { return g_nextId++; }
+
 esp_err_t request(api::RadioApi& api, const char* req, Message& reply, uint32_t timeoutMs,
                   uint32_t& rttMs, protocol::RxInfo& replyInfo) {
     Message msg;
@@ -24,7 +26,7 @@ esp_err_t request(api::RadioApi& api, const char* req, Message& reply, uint32_t 
     }
 
     // Rebuild the frame with our id so the reply can be matched to this request.
-    const uint32_t id = g_nextId++;
+    const uint32_t id = nextRequestId();
     char frame[kMaxFrame + 1];
     const size_t frameLen = format(frame, sizeof(frame), msg.verb, msg.topic, "%s%sid=%lu",
                                    msg.body, msg.body[0] ? ";" : "", (unsigned long)id);

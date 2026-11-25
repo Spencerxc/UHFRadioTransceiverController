@@ -78,6 +78,8 @@ Type `help` at the `cc1120>` prompt to list all commands.
 | `send <text>` | Transmit a packet (max 125 bytes), then return to RX |
 | `recv [ms]` | Wait for a received packet and print it as hex |
 | `cmd <request> [ms]` | Send a command to the remote unit, wait for the reply (default 3000 ms) and print it with the round-trip time, e.g. `cmd PING`, `cmd GET::TEL::` |
+| `ping [-c n] [-s bytes] [-i ms] [-W ms] [--drop %] [--corrupt-up %] [--corrupt-down %] [-q]` | Stress ping the remote: loss/corruption per direction, RTT/RSSI/LQI stats, optional fault injection (see [Stress testing](#stress-testing)) |
+| `stream <tx\|rx> [-n count] [-s bytes] [-g gap_ms]` | Run a test data stream to (`tx`) or from (`rx`) the remote and report loss, corruption, duplicates and bit error rate |
 
 Addresses `0x00`–`0x2E` are normal registers. Extended registers are written as `0x2Fxx`.
 
@@ -98,8 +100,12 @@ adds the id automatically.
 | Request | Reply | Fields |
 |---|---|---|
 | `PING` | `RSP::PONG::id=8` | (none). `cmd` prints the round-trip time |
+| `PING::::ck=<crc16>;[f=d\|c;]d=<data>` | `RSP::PONG::id=8;ul=ok;rs=-61;d=<data>` | Stress ping (console `ping`). `ul` = how the request arrived: `ok`, `crc` (radio CRC failed) or `data` (data ≠ `ck`); `rs` = request RSSI at the remote; `d` echoed. `f=d` = don't reply, `f=c` = corrupt the echo (fault injection) |
+| `GET::STATUS::` | `RSP::STATUS::id=9;state=RX;ver=…;up=125;freq=434000000;ovf=0` | `ovf` = received packets dropped because the RX queue was full |
+| `STREAM::START::n=50;len=32;gap=20;sid=7` | `RSP::STREAM::id=11;sid=7;n=50;len=32;gap=20`, then the data stream | Remote transmits a test-pattern stream (all fields optional) |
+| `GET::STREAM::` | `RSP::STREAM::id=12;sid=7;n=50;ok=49;cor=1;lost=0;dup=0;gbl=0;be=3;bits=12800;rssi=-60` | Statistics for the last stream the remote received |
+| `STREAM::RESET::` | `RSP::STREAM::id=13;sid=0` | Clear those statistics |
 | `GET::TEL::` | `RSP::TEL::id=7;up=125;tmp=23.4;bat=3.71;rx=12;tx=11;freq=434000000;rssi=-61` | `up` uptime s, `tmp` °C, `bat` V, `rx`/`tx` packet counts, `freq` Hz, `rssi` dBm of the request as received by the remote (`NA` if invalid) |
-| `GET::STATUS::` | `RSP::STATUS::id=9;state=RX;ver=…;up=125;freq=434000000` | radio state, firmware version, uptime s, carrier Hz |
 | anything else | `ERR::UNKNOWN::id=10;cmd=FOO::BAR` | |
 | non-ASCII / malformed | `ERR::PARSE::` | |
 
@@ -141,6 +147,67 @@ round-trip time is mostly the airtime of the request plus the reply. If the remo
 out of range, `cmd` prints `no reply within 3000 ms`. A raw `send GET::TEL::` followed by
 `recv 3000` also works; the reply then has no `id`.
 
+## Data streams
+
+A data stream is a numbered sequence of binary packets ([src/stream/](src/stream/)), one radio packet each:
+
+```
+A5 | flags | sid | seq (u16 LE) | count (u16 LE) | hdr check | data (0-117 bytes)
+```
+
+The first byte, `0xA5`, is not printable ASCII, so stream packets and command frames can never be
+confused. The header check (low byte of CRC-16 over the header) lets the receiver match a packet
+that failed the radio CRC to its sequence number. Test streams fill the data with a pseudo-random
+pattern derived from `(sid, seq)`, so the receiver can regenerate it and count bit errors.
+
+`stream::Receiver` sorts every sequence number into **ok**, **corrupt** (received, but only with
+errors), or **lost** (never received). It also counts duplicates, reordered packets, garbled packets
+that could not be identified, CRC failures, bit errors, RSSI and goodput. The remote unit counts the
+stream packets it receives and never replies to them.
+
+```
+cc1120> stream tx -n 100 -s 64 -g 0     base -> remote, then reads GET::STREAM from the remote
+cc1120> stream rx -n 100 -s 64          remote -> base, counted here
+.......................C.....................D....?........   (. ok  C corrupt  D duplicate  ? garbled  E tx error)
+```
+
+Streams are limited to 1024 packets. At 1.2 kbps a 64-byte packet takes about 0.5 s on air,
+so a full-length stream takes several minutes, and neither end can be interrupted until it finishes.
+The default `-g 20` gap gives the receiver time to re-arm RX between packets. `-g 0`
+deliberately stresses that turnaround.
+
+## Stress testing
+
+`ping` sends each request with random data and a CRC-16 of that data. The remote checks the
+request and echoes the data back, so every failure can be put down to one direction:
+
+| Outcome | Meaning |
+|---|---|
+| `ok` | Reply arrived intact and the echo matches |
+| `LOST` | No reply before the timeout (`-W`) |
+| `CORRUPT-UP` | The request was damaged: radio CRC failed at the remote, data ≠ checksum, or the remote answered `ERR::PARSE` |
+| `CORRUPT-DOWN` | The reply was damaged: CRC failed here, the reply was unreadable, or the echo does not match |
+
+With two boards on a bench the link is usually perfect. To check that the detection works anyway,
+inject faults: `--drop` asks the remote not to reply, `--corrupt-up` changes a character after the
+checksum is computed, and `--corrupt-down` asks the remote to change a character of the echo.
+Injected and natural failures are counted separately:
+
+```
+cc1120> ping -c 200 -s 64 --drop 5 --corrupt-up 5 --corrupt-down 5 -q
+--- ping statistics ---
+200 sent (31 with injected faults)
+link (no injection): 168 ok, 1 lost, 0 corrupt-up, 0 corrupt-down, 0 error  -> 0.6% failed
+injected faults detected:  drop 11/11  corrupt-up 9/9  corrupt-down 11/11
+rtt min/avg/max = 905/921/948 ms
+rssi here   min/avg/max = -61/-58/-55 dBm
+rssi remote min/avg/max = -62/-59/-57 dBm
+```
+
+`cmd PING` and a plain `PING` without a `d` field still get the short `RSP::PONG::id=<n>` reply.
+Bad-CRC packets are delivered to the application, not flushed by the chip (`FIFO_CFG.CRC_AUTOFLUSH = 0`),
+which is how corruption shows up instead of looking like loss.
+
 ### Quick hardware check
 
 ```
@@ -168,7 +235,10 @@ src/main.cpp                    app_main: starts the Protocol Manager (and conso
 src/api/radio_api.h/.cpp        Interface API (1U1SMGR2)
 src/command/message.*           command frame parse/format (VERB::TOPIC::k=v;...)
 src/command/client.*            request/reply with id matching and RTT (used by console `cmd`)
-src/command/command_server.*    remote-unit task answering PING / GET::TEL / GET::STATUS
+src/command/ping.*              stress ping: echo check, outcome classification, fault injection
+src/command/command_server.*    remote-unit task answering PING / GET / STREAM requests
+src/stream/stream.*             data stream packet format, test-pattern sender, receiver statistics
+src/util/crc16.h                CRC-16/CCITT used by stream headers and the stress ping
 src/command/telemetry.*         telemetry sample (real radio stats + simulated sensors)
 src/protocol/protocol_manager.* Protocol Process Manager (1U1SMGR1)
 src/rfswitch/rfswitch.h/.cpp    RF switch GPIO driver (Rx GPIO 32, Tx GPIO 33)

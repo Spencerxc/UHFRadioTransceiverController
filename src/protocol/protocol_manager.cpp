@@ -258,6 +258,8 @@ void ProcessManager::pollRx() {
             // Drop if the application is not keeping up.
             if (xQueueSend(rxQueue_, &pkt, 0) == pdTRUE) {
                 ++rxCount_;
+            } else {
+                ++rxDropped_;
             }
         }
     }

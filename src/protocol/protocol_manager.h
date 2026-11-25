@@ -72,6 +72,8 @@ public:
     // Packets transmitted successfully / received and queued since boot.
     uint32_t txCount() const { return txCount_.load(); }
     uint32_t rxCount() const { return rxCount_.load(); }
+    // Packets received but dropped because the RX queue was full.
+    uint32_t rxDropped() const { return rxDropped_.load(); }
 
     // Raw access for the debug console.
     cc1120::Cc1120& radio() { return radio_; }
@@ -99,6 +101,7 @@ private:
     volatile State state_ = State::Init;
     std::atomic<uint32_t> txCount_{0};
     std::atomic<uint32_t> rxCount_{0};
+    std::atomic<uint32_t> rxDropped_{0};
 };
 
 }  // namespace protocol
